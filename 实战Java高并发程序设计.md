@@ -442,3 +442,322 @@ public class ThreadJoinYield {
 
 ## 第三章 JDK并发包
 
+### 一、同步控制
+
+在上面的章节中学习了synchronize关键字作为线程同步控制的方式，接下来要学习重入锁
+
+#### 1.1 重入锁概念
+
+**重入锁**:支持一个线程多次获得锁，何时获得锁以及何时释放锁都为显示操作，相比synchronize关键字更加灵活，并且支持线程重复获得锁
+
+#### 1.2 实战重入锁
+
+##### 1.2.1 创建重入锁
+
+重入锁需要**显示**的获得锁以及释放锁，并且重入锁**支持线程多次获得锁**，切记，线程获得过几次锁，就必须释放几次锁
+
+```java
+package com.thread.java.util.concurrent.locks;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/3/26 20:52
+ * @Description: 重入锁
+ */
+public class ReentrantLock implements Runnable {
+
+    private java.util.concurrent.locks.ReentrantLock reentrantLock = new java.util.concurrent.locks.ReentrantLock();
+
+    private static int i = 0;
+
+    @Override
+    public void run() {
+        for (int j = 0; j < 90000; j++) {
+            reentrantLock.lock();
+            try {
+                i ++;
+            } finally {
+                reentrantLock.unlock();
+            }
+        }
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        ReentrantLock reentrantLock = new ReentrantLock();
+        Thread t1 = new Thread(reentrantLock);
+        Thread t2 = new Thread(reentrantLock);
+
+        t1.start();
+        t1.join();
+
+        t2.start();
+        t2.join();
+
+        System.err.println("i " + i);
+    }
+}
+```
+
+##### 1.2.2 中断响应
+
+重入锁支持中断响应操作，意味着当一个线程在等待锁的过程中可以根据需求取消对锁的请求
+
+```java
+package com.thread.java.util.concurrent.locks;
+
+import java.util.concurrent.locks.ReentrantLock;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/3/27 20:27
+ * @Description: 重入锁 响应中断
+ */
+public class Interruptibly implements Runnable {
+
+    private static ReentrantLock lock1 = new ReentrantLock();
+
+    private static ReentrantLock lock2 = new ReentrantLock();
+
+    private int lock;
+
+    public Interruptibly(int lock) {
+        this.lock = lock;
+    }
+
+    @Override
+    public void run() {
+        try {
+            if (lock == 1) {
+                lock1.lockInterruptibly();
+                Thread.sleep(500);
+                lock2.lockInterruptibly();
+            } else {
+                lock2.lockInterruptibly();
+                Thread.sleep(500);
+                lock1.lockInterruptibly();
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            if (lock1.isHeldByCurrentThread()) {
+                lock1.unlock();
+            }
+            if (lock2.isHeldByCurrentThread()) {
+                lock2.unlock();
+            }
+            System.err.println("Thread id " + Thread.currentThread().getId() + " exit");
+        }
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        Interruptibly l1 = new Interruptibly(1);
+        Thread t1 = new Thread(l1);
+        Thread t2 = new Thread(l1);
+
+        t1.start();
+        t2.start();
+
+        Thread.sleep(500);
+        t2.interrupt();
+    }
+}
+```
+
+##### 1.2.3 锁申请等待限时
+
+重入锁**支持锁申请等待限时**，通过tryLock()方法，当超过设定的时间，线程依然没有获得锁，则返回false，反之放回true
+
+```java
+package com.thread.java.util.concurrent.locks;
+
+import java.util.concurrent.locks.ReentrantLock;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/3/29 17:06
+ * @Description:
+ */
+public class TryLock2 implements Runnable {
+
+    private static ReentrantLock lock1 = new ReentrantLock();
+    private static ReentrantLock lock2 = new ReentrantLock();
+
+    private int lock;
+
+    public TryLock2(int lock) {
+        this.lock = lock;
+    }
+
+    @Override
+    public void run() {
+        if (lock == 1) {
+            while (true) {
+                if (lock1.tryLock()) {
+                    try {
+                        Thread.sleep(100);
+
+                        if (lock2.tryLock()) {
+                            System.err.println("lock2 Thread " +
+                                    Thread.currentThread().getId() +
+                                    " my job done");
+                        }
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    } finally {
+                        if (lock1.isHeldByCurrentThread()) {
+                            lock1.unlock();
+                        }
+                        if (lock2.isHeldByCurrentThread()) {
+                            lock2.unlock();
+                        }
+                    }
+                }
+            }
+        } else {
+            while (true) {
+                if (lock2.tryLock()) {
+                    try {
+                        Thread.sleep(100);
+
+                        if (lock1.tryLock()) {
+                            System.err.println("lock1 Thread " +
+                                    Thread.currentThread().getId() +
+                                    " my job done");
+                        }
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    } finally {
+                        if (lock1.isHeldByCurrentThread()) {
+                            lock1.unlock();
+                        }
+                        if (lock2.isHeldByCurrentThread()) {
+                            lock2.unlock();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        TryLock2 lock1 = new TryLock2(1);
+        TryLock2 lock2 = new TryLock2(2);
+
+        Thread t1 = new Thread(lock1);
+        Thread t2 = new Thread(lock2);
+
+        t1.start();
+        t2.start();
+    }
+}
+```
+
+##### 1.2.4 公平锁
+
+公平锁 多个线程进行排队依次获得锁并执行
+公平锁需要维护一个有序队列，因此公平锁实现成本很高，性能相对也比较低下
+
+```java
+package com.thread.java.util.concurrent.locks;
+
+import java.util.concurrent.locks.ReentrantLock;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/4/1 10:40
+ * @Description: 实验公平锁
+ */
+public class FairLock implements Runnable {
+
+    /**
+     * 公平锁 多个线程进行排队依次获得锁并执行
+     * 公平锁需要维护一个有序队列，因此公平锁实现成本很高，性能相对也比较低下
+     */
+    private static ReentrantLock fairLock = new ReentrantLock(true);
+
+    @Override
+    public void run() {
+        while (true) {
+            try {
+                fairLock.lock();
+                System.err.println(Thread.currentThread().getName() + "get lock ...");
+            } finally {
+                fairLock.unlock();
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        FairLock fairLock = new FairLock();
+
+        Thread t1 = new Thread(fairLock, "thread-0");
+        Thread t2 = new Thread(fairLock, "thread-1");
+
+        t1.start();
+        t2.start();
+    }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
