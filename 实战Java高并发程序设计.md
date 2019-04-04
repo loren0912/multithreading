@@ -1004,7 +1004,7 @@ import com.revinate.guava.util.concurrent.RateLimiter;
  * 常用方法：
  * {@link RateLimiter#create(double)} 指定每秒能执行几个线程 使用令牌桶算法
  * {@link RateLimiter#acquire()} 获取一个许可，当前线程能否执行
- *
+ * 该类来自于 google guava 工具包
  */
 public class RateLimiterDemo {
 
@@ -1023,11 +1023,11 @@ public class RateLimiterDemo {
 
     public static void main(String[] args) {
         for (int i = 0; i < 50; i++) {
+            // 拥有令牌才可执行
             limiter.acquire();
             new Thread(new Task()).start();
         }
     }
 }
-
 ```
 
