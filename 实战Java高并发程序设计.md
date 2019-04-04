@@ -699,65 +699,335 @@ public class FairLock implements Runnable {
 }
 ```
 
+#### 1.3 Condition
+
+**Condition**与重入锁(ReentrantLock)搭配使用，Condition提供了await()、awaitUnInterruptibly() 、singal()、singalAll()等方法
+
+```java
+package com.thread.java.util.concurrent.condition;
+
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/4/1 20:13
+ * @Description: 实战 重入锁搭档 {@link Condition}
+ * 常用方法：
+ *     {@link Condition#await()} 使线程等待并释放锁
+ *     {@link Condition#signal()} 唤醒一个在该对象上等待的线程 调用该方法之前需要获得锁
+ *     {@link Condition#signalAll()} 唤醒全部在该对象上等待的线程 调用该方法之前需要获得锁
+ *
+ */
+public class ReentrantLockCondition implements Runnable {
+
+    /**
+     * 创建重入锁
+     */
+    private static ReentrantLock reentrantLock = new ReentrantLock();
+
+    /**
+     * 将 reentrantLock 与 condition 绑定
+     */
+    private static Condition condition = reentrantLock.newCondition();
+
+    @Override
+    public void run() {
+        reentrantLock.lock();
+        try {
+            // 使得当前线程在 condition对象上等待 并释放锁
+            condition.await();
+            System.err.println(Thread.currentThread().getName() + " exit... ");
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            reentrantLock.unlock();
+        }
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        ReentrantLockCondition reentrantLockCondition = new ReentrantLockCondition();
+        Thread re1 = new Thread(reentrantLockCondition, "re1");
+        re1.start();
+        Thread.sleep(2000);
+        // 通知re1继续执行
+        reentrantLock.lock();
+        condition.signal();
+        reentrantLock.unlock();
+    }
+}
+```
 
 
 
+#### 1.4 信号量(Semaphore)
+
+**信号量**可以指定多个线程同时访问某一资源，与之相对应的，无论是内部锁(synchronized)还是重入锁**(ReentrantLock)**一次都只允许一个线程访问一个资源
+
+```java
+package com.thread.java.util.concurrent.condition;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/4/4 15:23
+ * @Description:实战信号量
+ */
+public class SemaphoreDemo implements Runnable {
+
+    /**
+     * 意味着颁发了五个许可
+     */
+    public static Semaphore semp = new Semaphore(5);
+
+    @Override
+    public void run() {
+        try {
+            // 从讯号量中询问许可 当前线程是否可以执行
+            semp.acquire();
+            Thread.sleep(2000);
+            // 每隔2秒输出五次
+            System.err.println(Thread.currentThread().getId() + " done! ...");
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            // 释放许可
+            semp.release();
+        }
+    }
+
+    public static void main(String[] args) {
+        ExecutorService executorService = Executors.newFixedThreadPool(20);
+        for (int i = 0; i < 20; i++) {
+            SemaphoreDemo demo = new SemaphoreDemo();
+            executorService.submit(demo);
+        }
+    }
+}
+
+```
 
 
 
+#### 1.5 读写锁
+
+读写锁允许多个线程同时读，但是写写操作和读写操作的线程依然堵塞的
+
+读写锁约束情况如下表：
+
+|      | 读     | 写   |
+| ---- | ------ | ---- |
+| 读   | 非阻塞 | 阻塞 |
+| 写   | 阻塞   | 阻塞 |
+
+```java
+package com.thread.java.util.concurrent.condition;
+
+import java.util.Random;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/4/4 15:40
+ * @Description: 实践读写锁
+ * 在读写锁中，读读之间是可以同时访问临界资源的
+ */
+public class ReentrantReadWriteLockDemo {
+
+    /**
+     * 普通的重入锁
+     */
+    private static ReentrantLock reentrantLock = new ReentrantLock();
+
+    /**
+     * 被操作的值
+     */
+    private int value;
+
+    /**
+     * 读写锁
+     */
+    private static ReentrantReadWriteLock reentrantReadWriteLock = new ReentrantReadWriteLock();
+
+    /**
+     * 模拟读
+     * @param lock
+     * @return
+     * @throws InterruptedException
+     */
+    public int handlerRead(Lock lock) throws InterruptedException {
+        try {
+            lock.lock();
+            Thread.sleep(1000);
+            System.err.println("readThread value = " + value);
+            return value;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * 模拟写
+     * @param lock
+     * @param index
+     * @throws InterruptedException
+     */
+    public void handlerWrite(Lock lock, int index) throws InterruptedException {
+        try {
+            lock.lock();
+            Thread.sleep(1000);
+            value = index;
+            System.err.println("writerThread value = " + value);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public static void main(String[] args) {
+        ReentrantReadWriteLockDemo demo = new ReentrantReadWriteLockDemo();
+        //读锁
+        ReentrantReadWriteLock.ReadLock readLock = reentrantReadWriteLock.readLock();
+        //写锁
+        ReentrantReadWriteLock.WriteLock writeLock = reentrantReadWriteLock.writeLock();
+
+        Runnable readThread = new Runnable() {
+            @Override
+            public void run() {
+                try {
+//                    demo.handlerRead(reentrantLock);
+                    demo.handlerRead(readLock);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+
+        Runnable writerThread = new Runnable() {
+            @Override
+            public void run() {
+                try {
+//                    demo.handlerWrite(reentrantLock, new Random().nextInt());
+                    demo.handlerWrite(writeLock, new Random().nextInt());
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+
+        for (int i = 0; i < 18; i++) {
+            new Thread(readThread).start();
+        }
+
+        for (int i = 0; i < 2; i++) {
+            new Thread(writerThread).start();
+        }
+    }
+}
+
+```
 
 
 
+#### 1.6 倒计数器CountDownLatch
 
+通常用来控制线程等待，可以**让某个线程等待直倒计数结束，再开始执行**
 
+可以用在使点火线程**等待所有检查线程全部完工***后再执行场景中
 
+```java
+package com.thread.java.util.concurrent.condition;
 
+import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
+/**
+ * @Auther: loren
+ * @Date: 2019/4/4 16:22
+ * @Description: 实战倒计数器
+ * 常用方法：
+ * {@link CountDownLatch#await()} 该方法会使当前线程等待 直到计数器为0
+ * {@link CountDownLatch#countDown()} 该方法会使计数器减1 当计数器为0时，会唤醒所有在等待中的线程
+ */
+public class CountDownLatchDemo implements Runnable {
 
+    /**
+     * 初始化倒计数器
+     */
+    public static CountDownLatch countDownLatch = new CountDownLatch(10);
 
+    @Override
+    public void run() {
+        try {
+            // 模拟检查任务
+            Thread.sleep(new Random().nextInt(10) * 1000);
+            System.err.println(Thread.currentThread().getId()  + " check over! ... ");
+            countDownLatch.countDown();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
 
+    public static void main(String[] args) throws InterruptedException {
+        CountDownLatchDemo countDownLatchDemo = new CountDownLatchDemo();
+        ExecutorService executorService = Executors.newFixedThreadPool(10);
+        for (int i = 0; i < 10; i++) {
+            executorService.submit(new Thread(countDownLatchDemo));
+        }
+        // 等待倒计数完毕
+        countDownLatch.await();
+        System.err.println("Fire !!!");
+        executorService.shutdown();
+    }
+}
+```
 
+#### 1.7 RateLimiter
 
+采用**令牌桶算法**，该算法在**每个单位时间产生一定量的令牌**存入桶中，拥有令牌的线程才可执行
 
+```java
+package com.thread.java.util.concurrent.condition;
 
+import com.revinate.guava.util.concurrent.RateLimiter;
 
+/**
+ * @Auther: loren
+ * @Date: 2019/4/4 19:05
+ * @Description: 实战限流器
+ * 常用方法：
+ * {@link RateLimiter#create(double)} 指定每秒能执行几个线程 使用令牌桶算法
+ * {@link RateLimiter#acquire()} 获取一个许可，当前线程能否执行
+ *
+ */
+public class RateLimiterDemo {
 
+    /**
+     * 初始化限流器 指定每秒最多有两个线程执行
+     */
+    public static RateLimiter limiter = RateLimiter.create(2);
 
+    public static class Task implements Runnable {
 
+        @Override
+        public void run() {
+            System.err.println(System.currentTimeMillis());
+        }
+    }
 
+    public static void main(String[] args) {
+        for (int i = 0; i < 50; i++) {
+            limiter.acquire();
+            new Thread(new Task()).start();
+        }
+    }
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+```
 
