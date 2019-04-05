@@ -1031,3 +1031,152 @@ public class RateLimiterDemo {
 }
 ```
 
+### 二、线程复用：线程池
+
+#### 2.1 关于线程池
+
+##### 2.1.1 为什么需要线程池
+
+1. **时间开销**。如果每个任务都要创建一个线程，则**很有可能创建和销毁所占用的时间大于该线程真实工作所消耗的时间**，反而得不偿失
+2. **系统安全**。如果不限制线程创建，大量的线程会抢占宝贵的内存资源，甚至导致系统奔溃。利用线程池，能够对线程进行更好的管理、优化。
+
+##### 2.1.2 什么是线程池
+
+​    线程池相当于存放线程的容器，里面有一个或多个活跃线程，当需要使用线程时，则从中取出一个空闲线程；当线程任务完成时，则将线程放回线程池中，**避免了频繁的线程创建和销毁也更利于线程管理**。
+
+#### 2.2 如何使用线程池
+
+##### 2.2.1 JDK对线程池的支持
+
+> Here we provide several UML
+> [class diagrams](https://www.uml-diagrams.org/class-diagrams-overview.html)
+> for the **Java™ 7 java.util.concurrent package**.
+> Several java.util.concurrent.* packages introduced with version 5.0 of the Java platform
+> added high-level concurrency features to the Java and new concurrent data structures to the Java Collections Framework.
+
+![](https://www.uml-diagrams.org/examples/java-7-concurrent-executors-uml-class-diagram-example.png)
+
+> **Executors** define a high-level API for launching and managing threads
+> to support large-scale applications mostly by adding **thread pool management** abilities.
+> The java.util.concurrent package includes several thread pool management implementation classes.
+
+![](https://www.uml-diagrams.org/examples/java-7-concurrent-collections-uml-class-diagram-example.png)
+
+>**Concurrent collections** are also part of the java.util.concurrent package.
+>These collections reduce the need for synchronization and designed to support
+>concurrent access and modifications of the large collections of data.
+
+![](https://www.uml-diagrams.org/examples/java-7-concurrent-future-uml-class-diagram-example.png)
+
+> The **Future<V>** interface represents the result of an asynchronous computation,  where type V is the result type returned by the Future's get method.  Methods of this interface allow to wait for the computation to complete,  to cancel execution of the task, to check if the computation is complete or was cancelled,  and to retrieve the result of the computation. 
+>
+> The **Delayed** interface allows to mark objects  that should be acted upon after a given delay.  ScheduledFuture<V> interface extends both Future<V> and Delayed, and   is usually a result of scheduling a task with a ScheduledExecutorService. 
+>
+> The **FutureTask** class is an implementation of Future that implements java.lang.**Runnable**  as required by RunnableFeature interface, and thus may be executed by an Executor.  
+
+##### 2.2.2 关于一些类的说明
+
+1. ThreadPoolExecutor：表示一个线程池，实现了Executor接口
+
+2. Executors：扮演者线程池工厂的角色，通过Executors可以取得一个拥有特定功能的线程池
+3. Executor 提供了各种类型的线程池，主要有一下工厂方法
+
+```java
+// 创建一个返回固定大小的线程池    
+public static ExecutorService newFixedThreadPool(int nThreads)
+// 创建一个只有一个线程的线程池
+public static ExecutorService newSingleThreadExecutor();
+// 创建一个可根据实际情况调整的线程数量的线程池 若无空闲线程且又有任务提交 则会创建新的线程处理任务
+public static ExecutorService newCachedThreadPool();
+// 创建一个只有一个线程的线程池 返回为ScheduledExecutorService对象 可用于定时任务
+public static ScheduledExecutorService newSingleThreadScheduledExecutor();
+// 创建一个指定线程数量的线程池 返回为ScheduledExecutorService对象 可用于定时任务
+public static ScheduledExecutorService newScheduledThreadPool(int corePoolSize);
+```
+
+##### 2.2.3 jdk是如何创建线程池的
+
+```java
+// Eexcutors扮演者线程工厂的角色，负责创建各类线程池 以其中的一个创建固定线程大小的构造方法为例
+// 来揭示JDK是如何创建线程池的
+public static ExecutorService newFixedThreadPool(int nThreads) {
+        return new ThreadPoolExecutor(nThreads, nThreads,
+                                      0L, TimeUnit.MILLISECONDS,
+                                      new LinkedBlockingQueue<Runnable>());
+    }
+// 其实Eexcutors内部封装了ThreadPoolExecutor构造器 下面是ThreadPoolExecutor参数最全的构造器
+public ThreadPoolExecutor(int corePoolSize,// 线程池中空闲的线程数
+                              int maximumPoolSize,// 线程池中最大线程数
+                              long keepAliveTime,// 线程池中线程数量大于corePoolSize时，空闲线                                                                                  程存活时间
+                              TimeUnit unit,// keepAliveTime的时间单位
+                              BlockingQueue<Runnable> workQueue,// 被提交但未被执行的任务队列
+                              ThreadFactory threadFactory,// 线程工厂 用来创建线程
+                              RejectedExecutionHandler handler// 拒绝策略，任务过多时如何拒绝
+                              )
+    
+```
+
+###### 2.2.3.1 关于BlockingQueue<Runnable> workQueue
+
+workQueue指被提交但未执行的任务队列。当一个任务被提交，但因为线程池中午空闲线程等原因而无法执行，则会被放入wrokQueue队列，有以下集中队列(**这些队列都是BlockingQueue的实现类**)：
+
+1. 直接提交的队列(**SynchronousQueue**)：每一个插入操作都要等待一个删除操作，反之，每一个删除操作都要等待对应的插入操作。如果使用SynchronousQueue则提交的任务不会被真实的保存，而总是将新任务提交给线程执行，若无空闲的线程，则尝试创建新的线程，若线程数量已达到最大值，则执行拒绝策略
+2. 有界的任务队列(**ArrayBolckingQueue**)：ArrayBolckingQueue类构造函数必须带一个容量参数，表示该队列的最大容量。当使用有界的任务队列时，若有新的任务需要执行，如果线程池中的实际线程数小于corePoolSize，则会优先创建新的线程；若大于corePoolSize，则会将新任务加入等待队列；若队列已满，则在总线程数不大于maximumPoolSize的前提下，创建新的线程执行任务，若大于则执行拒绝策略
+3. 无界的任务队列(**LinkedBlockingQueue**)：//TODO 等待后期写
+4. 优先任务队列(**PriorityBlockingQueue**)：优先任务队列是一个特殊的无界队列，根据任务自身的优先级顺序先后执行
+
+###### 2.2.5 关于RejectedExecutionHandler
+
+当任务数量超过系统实际承载能力是，就需要使用拒绝策略。
+
+JDK内置了四种拒绝策略，他们都为**RejectedExecutionHandler**的实现类
+
+1. DiscardOldestPolicy：该策略将丢弃最老的一个请求，也就是即将被处理的一个任务，并尝试在此提交当前任务
+2. AbortPolicy：该策略直接抛出异常，阻止系统正常工作
+3. CallerRunsPolicy：该策略直接在调用者线程中运行当前被丢弃的任务，显然这样做不会真的丢弃任务，但是，任务提交线程的性能极有可能会急剧下降
+4. DiscardPolicy：该策略默认丢弃无法处理的任务，不予任何处理
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
