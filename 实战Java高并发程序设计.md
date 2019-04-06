@@ -1031,6 +1031,95 @@ public class RateLimiterDemo {
 }
 ```
 
+#### 1.8 循环栅栏
+
+**public CyclicBarrier(int parties, Runnable barrierAction)**初始化时传入需要等待的线程数(**parties**)以及每个线程到达时要执行的动作(**barrierAction**)
+
+```java
+package com.thread.java.util.concurrent.condition;
+
+import java.util.Random;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/4/4 17:03
+ * @Description: 实战 循环栅栏
+ * 常用方法：
+ * {@link CyclicBarrier#await()}  该方法等待指定的线程数量 达到执行的数量时则唤醒所有等待中的线程
+ */
+public class CyclicBarrierDemo {
+
+    public static class Soldier implements Runnable {
+
+        private String soldier;
+
+        private final CyclicBarrier cyclicBarrier;
+
+        public Soldier(String soldier, CyclicBarrier cyclicBarrier) {
+            this.soldier = soldier;
+            this.cyclicBarrier = cyclicBarrier;
+        }
+
+        @Override
+        public void run() {
+            try {
+                // 这里的await()方法等待 “等待在这里的线程数”
+                // 达到10个线程时则唤醒所有的线程并继续执行
+                cyclicBarrier.await();
+                doWork();
+                cyclicBarrier.await();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } catch (BrokenBarrierException e) {
+                e.printStackTrace();
+            }
+        }
+
+        private void doWork() throws InterruptedException {
+            Thread.sleep(new Random().nextInt(10) * 1000);
+            System.err.println(soldier + " 任务完成");
+        }
+    }
+
+    public static class BarrierRun implements Runnable {
+        boolean flag;
+        int N;
+
+        public BarrierRun(boolean flag, int n) {
+            this.flag = flag;
+            N = n;
+        }
+
+        @Override
+        public void run() {
+            if (flag) {
+                System.err.println("司令：[士兵" + N + "个，任务完成！]");
+            } else {
+                System.err.println("司令：[士兵" + N + "个，集合完毕！]");
+                flag = true;
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        final int N = 10;
+        Thread[] allSoldier = new Thread[N];
+        boolean flag = false;
+        // new BarrierRun(flag, N)当线程到达时需要执行的动作
+        CyclicBarrier cyclicBarrier = new CyclicBarrier(N, new BarrierRun(flag, N));
+        System.err.println("集合队伍！");
+
+        for (int i = 0; i < N; i++) {
+            System.err.println("士兵" + i + "报道！");
+            allSoldier[i] = new Thread(new Soldier( "士兵" + i, cyclicBarrier));
+            allSoldier[i].start();
+        }
+    }
+}
+```
+
 ### 二、线程复用：线程池
 
 #### 2.1 关于线程池
@@ -1131,22 +1220,145 @@ workQueue指被提交但未执行的任务队列。当一个任务被提交，�
 
 JDK内置了四种拒绝策略，他们都为**RejectedExecutionHandler**的实现类
 
-1. DiscardOldestPolicy：该策略将丢弃最老的一个请求，也就是即将被处理的一个任务，并尝试在此提交当前任务
-2. AbortPolicy：该策略直接抛出异常，阻止系统正常工作
-3. CallerRunsPolicy：该策略直接在调用者线程中运行当前被丢弃的任务，显然这样做不会真的丢弃任务，但是，任务提交线程的性能极有可能会急剧下降
-4. DiscardPolicy：该策略默认丢弃无法处理的任务，不予任何处理
+1. **DiscardOldestPolicy**：该策略将丢弃最老的一个请求，也就是即将被处理的一个任务，并尝试在此提交当前任务
+2. **AbortPolicy**：该策略直接抛出异常，阻止系统正常工作
+3. **CallerRunsPolicy**：该策略直接在调用者线程中运行当前被丢弃的任务，显然这样做不会真的丢弃任务，但是，任务提交线程的性能极有可能会急剧下降
+4. **DiscardPolicy**：该策略默认丢弃无法处理的任务，不予任何处理
+
+##### 2.2.4 自定义拒绝策略
+
+自定义决绝策略需要实现 RejectedExecutionHandler 接口
+
+```java
+package com.thread.java.util.concurrent.reject.policy;
+
+import java.util.Random;
+import java.util.concurrent.*;
+
+/**
+ * @Auther: loren
+ * @Date: 2019/4/6 10:13
+ * @Description:
+ */
+public class MyRejectPolicy {
+
+    public static class MyTask implements Runnable {
+        @Override
+        public void run() {
+            System.err.println(Thread.currentThread().getName() + " success execute ");
+            try {
+                Thread.sleep(new Random().nextInt(10) * 1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
 
 
+    /**
+     * 自定义拒绝策略 {@link RejectedExecutionHandler}
+     */
+    public static class PrintDiscardPolicy implements RejectedExecutionHandler {
 
+        @Override
+        public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+            System.err.println(Thread.currentThread().getName() + " discard ...");
+        }
+    }
 
+    public static void main(String[] args) {
+        // 核心线程池大小为5 最大县城数为5 队列长度为5 自定义拒绝策略
+        ExecutorService executorService = new ThreadPoolExecutor(5,
+                5,
+                5,
+                TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(5),
+                Executors.defaultThreadFactory(),
+                new PrintDiscardPolicy());
 
+        for (int i = 0 ; i < 1000; i++) {
+            executorService.submit(new MyTask());
+        }
+        executorService.shutdown();
+    }
+}
+```
 
+##### 2.2.5 自定义线程池
 
+阅读源码会发现，当**线程池(ThreadPoolExecutor)**需要新建线程时，使用的是**ThreadFactory#newThread(Runnable r)方法**，所以自定义线程池必须实现ThreadFactory接口
 
+```java
+package com.thread.java.util.concurrent.thread.pool;
 
+import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
+/**
+ * @Auther: loren
+ * @Date: 2019/4/6 10:55
+ * @Description: 实战自定义线程工厂
+ * 自定义线程工厂需要实现{@link ThreadFactory} 接口
+ */
+public class ThreadFactoryDemo {
 
+    public static class MyTask implements Runnable {
 
+        @Override
+        public void run() {
+            System.err.println(Thread.currentThread().getName() + " hello ....");
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 自定义线程工厂
+     */
+    public static class MyThreadFactory implements ThreadFactory {
+        /**
+         * 获取线程名字
+         * @return
+         */
+        private String getThreadName() {
+            return "myThread" + new Random().nextInt();
+        }
+
+        @Override
+        public Thread newThread(Runnable r) {
+            return new Thread(r, getThreadName());
+        }
+    }
+
+    public static void main(String[] args) {
+        // 线程池大小为10 并且使用自定义的工厂
+        ExecutorService executorService = Executors.newFixedThreadPool(10, new MyThreadFactory());
+        for (int i = 0; i < 10; i++) {
+            executorService.submit(new MyTask());
+        }
+        executorService.shutdown();
+    }
+}
+```
+
+##### 2.2.6 Fork/Join框架
+
+**“分而治之”**是一种有效的处理大数据的思想。假设你要处理1000个数据，但是并不具备处理1000个数据的能力，则可以只处理其中10个数据，然后分100次将数据处理完，再讲100次的处理结果合成，最终就是1000个数据的处理结果。
+
+**Fork**：在linux平台，fork用于创建子进程，在java中用户创建子线程
+
+**Join**：表示等待，主线程需要等待子线程这个执行分支执行完毕
+
+**“互相帮助”**：在**“分而治之”**的思想中，fork出来的线程可能不止对应一个任务，它会拥有一个任务队列，因此，有可能A线程的任务已经执行完毕而B线程的任务还有一大堆，则A线程会从B线程的任务队列中取出一个任务进行执行
+
+**“避免数据竞争”**：当一个线程帮助另一个线程时，帮助者线程总数从任务队列底部开始获取数据，而线程获取自己的任务时，则是从任务队列顶部开始获取数据
+
+![](http://ww1.sinaimg.cn/large/005P73H4ly1fqsi9w7oawj30r50igdh3.jpg)
 
 
 
